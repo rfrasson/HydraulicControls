@@ -1,4 +1,4 @@
-function [ReachBoundaries,Concavity]=FindReachesHydControl(RiverObs,DamLocations,SWATHboundaries,MinReachLen,tcritReach,numbregresspts,Makeplots)
+function [ReachBoundaries,StructureFlag,Concavity]=FindReachesHydControl(RiverObs,DamLocations,SWATHboundaries,MinReachLen,tcritReach,numbregresspts,Makeplots)
 %This function defines reach boundaries based on inflection points detected in
 %the water surface profile, swath boundaries, and detected 
 
@@ -24,6 +24,9 @@ function [ReachBoundaries,Concavity]=FindReachesHydControl(RiverObs,DamLocations
 %ReachBoundaries   : Indices of the nodes that correspond to reach
 %                    boundaries
 %Concavity         : Concavity of the WSP at computed at each node
+%StructureFlag     : Marks reaches that are influenced by a hydraulic
+%                    structure. Height, Width will be estimated, but should
+%                    be taken with a grain of salt.
 
 
 %Clarification on the format of RiverObs nodes.
@@ -66,15 +69,21 @@ function [ReachBoundaries,Concavity]=FindReachesHydControl(RiverObs,DamLocations
     if isempty(DamLocations)
         %treat the river as one
         [ReachBoundaries,Concavity,~,~]=DetectCurvatureLinear(x,y,1,MinReachLen,numbregresspts,tcritReach);
+        %add Swath boundaries and buffer zones around hydraulic structures
+        ReachBoundaries = [ReachBoundaries; SwathBoundIDs];
+        StructureFlag=zeros(size(ReachBoundaries));
+        [ReachBoundaries,~] = sort(ReachBoundaries);
     else
         %Step 2:
         NumberBoundaries=0;
+        DamBoundFlags=zeros(2*length(DamLocations),1); %indices of boundaries that are adjacent to dams
         Concavity=nan(size(x));
         beg=1;
         endn=DamLocations(1)-1;
         countsections=1;
         [Section(countsections).ReachBoundaries,Concavity(beg:endn),~,~]=DetectCurvatureLinear(x(beg:endn),y(beg:endn),1,MinReachLen,numbregresspts,tcritReach);
         NumberBoundaries=NumberBoundaries+length(Section(countsections).ReachBoundaries);
+        
         countsections=countsections+1;
         for count=1:length(DamLocations)-1
             beg=DamLocations(count);
@@ -97,15 +106,30 @@ function [ReachBoundaries,Concavity]=FindReachesHydControl(RiverObs,DamLocations
         ReachBoundaries=nan(NumberBoundaries,1);
         endn=length(Section(1).ReachBoundaries);
         ReachBoundaries(1:endn)=Section(1).ReachBoundaries(1:endn);
+        DamBoundFlags(1)=endn;
         for count=2:length(Section)
             beg=endn+1;
             endn=endn+length(Section(count).ReachBoundaries);
             ReachBoundaries(beg:endn)=Section(count).ReachBoundaries; 
+            DamBoundFlags(count)=beg;
+            DamBoundFlags(count+1)=endn;
         end
+        if ReachBoundaries(DamBoundFlags(length(DamBoundFlags)))~=DamLocations(length(DamLocations))
+            DamBoundFlags=DamBoundFlags(1:length(DamBoundFlags)-1); %we don't end in a dam, so set the flag to 0;
+        end
+        %add Swath boundaries and buffer zones around hydraulic structures
+        UpstreamBuffer=ceil(DamLocations-1/(x(2)-x(1))); %assuming:
+        %buffer of 1km and constant node spacing equal to the distance between node 2 and node 1
+        DownstreamBuffer=ceil(DamLocations+1/(x(2)-x(1)));
+        ReachBoundaries = [ReachBoundaries; SwathBoundIDs; UpstreamBuffer; DownstreamBuffer];
+        StructureFlag=zeros(size(ReachBoundaries));
+        StructureFlag(DamBoundFlags)=1;
+        StructureFlag(length(StructureFlag)-(length(DownstreamBuffer)+length(UpstreamBuffer))+1:length(StructureFlag))=1; %flags the buffer zones
+        [ReachBoundaries,indices] = sort(ReachBoundaries);
+        StructureFlag=StructureFlag(indices); %same order as ReachBoundaries
+        
     end
-    %add Swath boundaries
-    ReachBoundaries = [ReachBoundaries; SwathBoundIDs];
-    ReachBoundaries = sort(ReachBoundaries);
+    
     if Makeplots==1
         figure
         plot(RiverObs.Easting,RiverObs.Northing)

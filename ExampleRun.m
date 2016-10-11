@@ -1,7 +1,7 @@
 clear
-%River='Sacramento'; 
+River='Sacramento'; 
 %River='PoDS'; %downstream section of the Po River
-River='Po'; %upstream section of the Po River
+%River='Po'; %upstream section of the Po River
 pathtodata=['./RawData/' River '/'];
 MinReachLen=1; 
 tcritReach=2;
@@ -77,10 +77,10 @@ for count=1:length(DaysForReaches)
 end
 ReachNodes.H=mean(ReachH,2);
 AveProfile=ReachNodes;
-[ReachBoundaries,Concavity]=FindReachesHydControl(AveProfile,Dams,SWATHboundaries,MinReachLen,tcritReach,numbregresspts,Makeplots);
+[ReachBoundaries,StructureFlag,Concavity]=FindReachesHydControl(AveProfile,Dams,SWATHboundaries,MinReachLen,tcritReach,numbregresspts,Makeplots);
 
 load(filenameReference);
 RefRiverObs=RiverObs;
 RefTrue=True;
 load(filenameDataset,'RiverObs','True');
-[Reach,RiverData,Metadata,ReachTrue,Nodes,NodesTrue]=ReachAveraging(ReachBoundaries, Dams, RiverObs,True,RefRiverObs,RefTrue,Day,SaveResults,SmoothData,VariableSmoothingWindow,OutputPath, OutFileName,Makeplots);
+[Reach,RiverData,Metadata,ReachTrue,Nodes,NodesTrue]=ReachAveraging(ReachBoundaries, Dams, StructureFlag, RiverObs,True,RefRiverObs,RefTrue,Day,SaveResults,SmoothData,VariableSmoothingWindow,OutputPath, OutFileName,Makeplots);
