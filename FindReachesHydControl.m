@@ -1,4 +1,4 @@
-function [ReachBoundaries,StructureFlag,Concavity]=FindReachesHydControl(RiverObs,DamLocations,SWATHboundaries,MinReachLen,tcritReach,numbregresspts,Makeplots)
+function [ReachBoundaries,StructureFlag,Concavity]=FindReachesHydControl(RiverObs,DamLocations,SWATHboundaries,MinReachLenght,tcritReach,numbregresspts,Makeplots)
 %This function defines reach boundaries based on inflection points detected in
 %the water surface profile, swath boundaries, and detected 
 
@@ -11,7 +11,7 @@ function [ReachBoundaries,StructureFlag,Concavity]=FindReachesHydControl(RiverOb
 %DamLocations      : Node ids that contain dams
 %SWATHboundaries   : Location of the intersections between SWATH boundaries
 %                    and the river centerline as flow distances in km.
-%MinReachLen       : Minimum reach length in km
+%MinReachLength    : Minimum reach length in km
 %tcritReach        : Number os Standard Deviations used to create
 %                    dH/dx confidense intervals. Tested value = 2
 %numbregresspts    : Number of regression points used to estimate dS/dx
@@ -63,16 +63,20 @@ function [ReachBoundaries,StructureFlag,Concavity]=FindReachesHydControl(RiverOb
     
     %Search for more reaches. 
     %Step 1: break up river at dams
-    %Step 2: search for inflection points (DetectCurvatureLinear)
+    %Step 2: search for inflection points (DetectCurvatureLinear) / merge small reaches
     %Step 3: Combine ReachBoundaries in a single, concise variable
     %Step 4: add boundaries at the swath's edges
     if isempty(DamLocations)
+        %Step 2 in the absence of dams
         %treat the river as one
-        [ReachBoundaries,Concavity,~,~]=DetectCurvatureLinear(x,y,1,MinReachLen,numbregresspts,tcritReach);
+        [ReachBoundaries,Concavity,~,~]=DetectCurvatureLinear(x,y,0,0,numbregresspts,tcritReach);
+        
         %add Swath boundaries and buffer zones around hydraulic structures
         ReachBoundaries = [ReachBoundaries; SwathBoundIDs];
         StructureFlag=zeros(size(ReachBoundaries));
         [ReachBoundaries,~] = sort(ReachBoundaries);
+        %Merge small reaches
+        ReachBoundaries=MergeShortReaches(ReachBoundaries,x,Concavity,MinReachLenght);
     else
         %Step 2:
         NumberBoundaries=0;
@@ -81,14 +85,18 @@ function [ReachBoundaries,StructureFlag,Concavity]=FindReachesHydControl(RiverOb
         beg=1;
         endn=DamLocations(1)-1;
         countsections=1;
-        [Section(countsections).ReachBoundaries,Concavity(beg:endn),~,~]=DetectCurvatureLinear(x(beg:endn),y(beg:endn),1,MinReachLen,numbregresspts,tcritReach);
+        [RB,Concavity(beg:endn),~,~]=DetectCurvatureLinear(x(beg:endn),y(beg:endn),0,0,numbregresspts,tcritReach);
+        RB=MergeShortReaches(RB,x(beg:endn),Concavity(beg:endn),MinReachLenght);
+        Section(countsections).ReachBoundaries=RB;
         NumberBoundaries=NumberBoundaries+length(Section(countsections).ReachBoundaries);
         
         countsections=countsections+1;
         for count=1:length(DamLocations)-1
             beg=DamLocations(count);
             endn=DamLocations(count+1)-1;
-            [Section(countsections).ReachBoundaries,Concavity(beg:endn),~,~]=DetectCurvatureLinear(x(beg:endn),y(beg:endn),1,MinReachLen,numbregresspts,tcritReach);
+            [RB,Concavity(beg:endn),~,~]=DetectCurvatureLinear(x(beg:endn),y(beg:endn),0,0,numbregresspts,tcritReach);
+            RB=MergeShortReaches(RB,x(beg:endn),Concavity(beg:endn),MinReachLenght);
+            Section(countsections).ReachBoundaries=RB;
             offset=beg-Section(countsections).ReachBoundaries(1); %Section(count).ReachBoundaries comes out with indices starting in 1, so we need to apply an offset
             %to place them with respect to "global" indices
             Section(countsections).ReachBoundaries=Section(countsections).ReachBoundaries + offset;
@@ -97,7 +105,9 @@ function [ReachBoundaries,StructureFlag,Concavity]=FindReachesHydControl(RiverOb
         end
         beg=DamLocations(length(DamLocations));
         endn=length(x);
-        [Section(countsections).ReachBoundaries,Concavity(beg:endn),~,~]=DetectCurvatureLinear(x(beg:endn),y(beg:endn),1,MinReachLen,numbregresspts,tcritReach);
+        [RB,Concavity(beg:endn),~,~]=DetectCurvatureLinear(x(beg:endn),y(beg:endn),0,0,numbregresspts,tcritReach);
+        RB=MergeShortReaches(RB,x(beg:endn),Concavity(beg:endn),MinReachLenght);
+        Section(countsections).ReachBoundaries=RB;
         offset=beg-Section(countsections).ReachBoundaries(1); %Section(count).ReachBoundaries comes out with indices starting in 1, so we need to apply an offset
         %to place them with respect to "global" indices
         Section(countsections).ReachBoundaries=Section(countsections).ReachBoundaries + offset;
@@ -127,20 +137,19 @@ function [ReachBoundaries,StructureFlag,Concavity]=FindReachesHydControl(RiverOb
         StructureFlag(length(StructureFlag)-(length(DownstreamBuffer)+length(UpstreamBuffer))+1:length(StructureFlag))=1; %flags the buffer zones
         [ReachBoundaries,indices] = sort(ReachBoundaries);
         StructureFlag=StructureFlag(indices); %same order as ReachBoundaries
-        
     end
     
     if Makeplots==1
-        figure
-        plot(RiverObs.Easting,RiverObs.Northing)
+        figure(1)
+        plot(RiverObs.Lon,RiverObs.Lat)
         hold on
-        plot(RiverObs.Easting(ReachBoundaries),RiverObs.Northing(ReachBoundaries),...,
+        plot(RiverObs.Lon(ReachBoundaries),RiverObs.Lat(ReachBoundaries),...,
                 'o','MarkerEdgeColor','b','MarkerFaceColor','b','MarkerSize',6)
         legend('Centerline', 'Reach boundaries');
-        xlabel('Easting (km)');
-        ylabel('Northing (km)');
+        xlabel('Longitude (Degrees)');
+        ylabel('Latitude (Degrees)');
         
-        figure
+        figure(2)
         for count=1:length(ReachBoundaries)-1
             if ReachBoundaries(count+1)-ReachBoundaries(count)>1
                 %this if skips considering dams as a separate reach
@@ -162,6 +171,8 @@ function [ReachBoundaries,StructureFlag,Concavity]=FindReachesHydControl(RiverOb
                 end
             end
         end
+        plot(x(ReachBoundaries),y(ReachBoundaries),...,
+                '^','MarkerEdgeColor','k','MarkerFaceColor','k','MarkerSize',8)
         xlabel('Flow distance, km')
         ylabel('Water elevation, m')
     end
